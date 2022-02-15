@@ -7,13 +7,6 @@ import (
 	"gitlab.com/microo8/plgo"
 )
 
-//Meh prints out message to error elog
-func Meh() {
-
-	logger := plgo.NewErrorLogger("", log.Ltime|log.Lshortfile)
-	logger.Println("meh")
-}
-
 //AddressTxt2Bin converts account address in text form to binary form
 func AddressTxt2Bin(data string) []byte {
 	logger := plgo.NewErrorLogger("", log.Ltime|log.Lshortfile)
