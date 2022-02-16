@@ -12,6 +12,13 @@ Check us out at https://algonode.io
 
 ## Install 
 
+```
+go install github.com/algonode/plgo/plgo@latest
+plgo
+cd build
+make install with_llvm=no
+```
+
 ## Support AlgoNode
 
 If you like what we do feel free to support us by sending some microAlgos to
