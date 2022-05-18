@@ -1,9 +1,9 @@
 module github.com/algonode/pg_algorand
 
-go 1.17
+go 1.18
 
 require (
-	github.com/algonode/plgo v1.2.1
+	github.com/algonode/plgo v1.2.2
 	github.com/algorand/go-algorand-sdk v1.12.0
 )
 
