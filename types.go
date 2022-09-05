@@ -11,9 +11,9 @@ import (
 
 //AddressTxt2Bin converts account address in text form to binary form
 func AddressTxt2Bin(data string) []byte {
-	logger := plgo.NewErrorLogger("", log.Ltime|log.Lshortfile)
 	addr, err := types.DecodeAddress(data)
 	if err != nil {
+		logger := plgo.NewErrorLogger("", log.Ltime|log.Lshortfile)
 		logger.Fatal(err)
 	}
 	return addr[:]
@@ -21,9 +21,9 @@ func AddressTxt2Bin(data string) []byte {
 
 //AddressBin2Txt converts binary account address to text
 func AddressBin2Txt(data []byte) string {
-	logger := plgo.NewErrorLogger("", log.Ltime|log.Lshortfile)
 	addr, err := types.EncodeAddress(data)
 	if err != nil {
+		logger := plgo.NewErrorLogger("", log.Ltime|log.Lshortfile)
 		logger.Fatal(err)
 	}
 	return addr
@@ -31,9 +31,9 @@ func AddressBin2Txt(data []byte) string {
 
 //TxnTxt2Bin converts textual TXN ID to binary
 func TxnTxt2Bin(data string) []byte {
-	logger := plgo.NewErrorLogger("", log.Ltime|log.Lshortfile)
 	decoded, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(data)
 	if err != nil {
+		logger := plgo.NewErrorLogger("", log.Ltime|log.Lshortfile)
 		logger.Fatal(err)
 	}
 	return decoded
