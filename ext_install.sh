@@ -1,4 +1,5 @@
 #!/bin/bash
+plgo
 cd build
 /bin/mkdir -p '/usr/share/postgresql/14/extension'
 /bin/mkdir -p '/usr/lib/postgresql/14/lib'
