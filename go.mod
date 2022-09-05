@@ -3,7 +3,7 @@ module github.com/algonode/pg_algorand
 go 1.18
 
 require (
-	github.com/algonode/plgo v1.2.3
+	github.com/algonode/plgo v1.2.4
 	github.com/algorand/go-algorand-sdk v1.20.0
 )
 
