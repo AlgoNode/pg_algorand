@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	"encoding/base32"
+//	"encoding/base32"
 
 	"github.com/algonode/plgo"
 	"github.com/algorand/go-algorand-sdk/types"
@@ -28,7 +28,7 @@ func AddressBin2Txt(data []byte) string {
 	}
 	return addr
 }
-
+/*
 //TxnTxt2Bin converts textual TXN ID to binary
 func TxnTxt2Bin(data string) []byte {
 	decoded, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(data)
@@ -43,3 +43,4 @@ func TxnTxt2Bin(data string) []byte {
 func TxnBin2Txt(data []byte) string {
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(data)
 }
+*/
