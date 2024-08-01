@@ -2,8 +2,7 @@
 
 ## About pg_algorand
 
-A set of utility functions to convert between binary arrays and various Algorand
-textual object encodings.
+A set of utility functions to convert between binary arrays and various Algorand textual object encodings.
 
 ## About AlgoNode
 
@@ -16,12 +15,9 @@ sudo apt-get install postgresql-server-dev-X.Y  #Replace X.Y with your version o
 ```
 
 ```bash
-go install github.com/algonode/plgo/plgo@latest
 git clone https://github.com/algonode/pg_algorand
 cd pg_algorand
-plgo
-cd build
-sudo make install with_llvm=no
+sh ./build.sh
 ```
 ```sql
 CREATE EXTENSION pg_algorand;

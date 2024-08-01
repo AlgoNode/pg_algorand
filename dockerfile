@@ -1,5 +1,4 @@
 FROM citusdata/citus:latest
 
-COPY build /build
-COPY ext_install.sh /build
-RUN /build/ext_install.sh
+COPY * /build
+RUN /build/build.sh
