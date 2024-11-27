@@ -6,14 +6,14 @@ CREATE OR REPLACE FUNCTION AddressTxt2Bin(
 )
     RETURNS bytea
     AS 'MODULE_PATHNAME', 'address_txt_2_bin'
-    LANGUAGE C STRICT;
+    LANGUAGE C STRICT IMMUTABLE;
 
 CREATE OR REPLACE FUNCTION AddressBin2Txt(
     address bytea
 )
     RETURNS text
     AS 'MODULE_PATHNAME', 'address_bin_2_txt'
-    LANGUAGE C STRICT;
+    LANGUAGE C STRICT IMMUTABLE;
 
 CREATE OR REPLACE FUNCTION GetNFDSigNameLSIG(
     name text,
@@ -21,7 +21,7 @@ CREATE OR REPLACE FUNCTION GetNFDSigNameLSIG(
 )
     RETURNS bytea
     AS 'MODULE_PATHNAME', 'get_nfd_sig_name_lsig'
-    LANGUAGE C STRICT;
+    LANGUAGE C STRICT IMMUTABLE;
 
 CREATE OR REPLACE FUNCTION GetNFDSigRevAddressLSIG(
     pointed_to_address text,
@@ -29,7 +29,7 @@ CREATE OR REPLACE FUNCTION GetNFDSigRevAddressLSIG(
 )
     RETURNS bytea
     AS 'MODULE_PATHNAME', 'get_nfd_sig_rev_address_lsig'
-    LANGUAGE C STRICT;
+    LANGUAGE C STRICT IMMUTABLE;
 
 CREATE OR REPLACE FUNCTION GetNFDSigRevAddressBinLSIG(
     pointed_to_address bytea,
@@ -37,4 +37,4 @@ CREATE OR REPLACE FUNCTION GetNFDSigRevAddressBinLSIG(
 )
     RETURNS bytea
     AS 'MODULE_PATHNAME', 'get_nfd_sig_rev_address_bin_lsig'
-    LANGUAGE C STRICT;
+    LANGUAGE C STRICT IMMUTABLE;
