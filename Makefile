@@ -13,3 +13,13 @@ REGRESS = pg_algorand
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
+
+.DEFAULT_GOAL := our-default
+
+our-default: pre-step all
+
+pre-step:
+	@echo "Building GO functions..."
+	CGO_ENABLED=1 go build -buildmode=c-archive functions.go
+
+.PHONY: our-default pre-step
