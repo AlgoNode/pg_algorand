@@ -13,7 +13,7 @@ CREATE OR REPLACE FUNCTION AddressBin2Txt(
     address bytea
 )
     RETURNS text
-    AS 'MODULE_PATHNAME', 'algorand_addr_encode'
+    AS 'MODULE_PATHNAME', 'address_bin_2_txt'
     LANGUAGE C STRICT IMMUTABLE;
 
 CREATE OR REPLACE FUNCTION GetNFDSigNameLSIG(

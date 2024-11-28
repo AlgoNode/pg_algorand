@@ -3,11 +3,39 @@
 
 PG_MODULE_MAGIC;
 
-PG_FUNCTION_INFO_V1(algorand_addr_encode);
+///////////////////////////////////////////////////////////////////////////////
+
+PG_FUNCTION_INFO_V1(address_txt_2_bin);
 
 Datum
-algorand_addr_encode(PG_FUNCTION_ARGS)
-{
+address_txt_2_bin(PG_FUNCTION_ARGS) {
+
+	// get the C-string from function args
+	text *address = PG_GETARG_TEXT_PP(0);
+	int32 text_size = VARSIZE_ANY_EXHDR(address);
+	// copy it into a zero-terminated buffer
+	char *buf = (char*)palloc(text_size+1);
+	memcpy(buf, VARDATA_ANY(address), text_size);
+	buf[text_size] = 0;
+
+	// call the cgo implementation of this function
+	unsigned char out[32];
+	AddressTxt2Bin(buf, out);
+
+	// set the bytea-type return value
+	int32 bytea_size = 32 + VARHDRSZ;
+	bytea *new_bytea = (bytea*) palloc(bytea_size);
+	SET_VARSIZE(new_bytea, bytea_size);
+	memcpy(VARDATA(new_bytea), out, 32);
+	PG_RETURN_BYTEA_P(new_bytea);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+PG_FUNCTION_INFO_V1(address_bin_2_txt);
+
+Datum
+address_bin_2_txt(PG_FUNCTION_ARGS) {
     bytea *input = PG_GETARG_BYTEA_PP(0);
     uint8_t *pubkey = (uint8_t *) VARDATA_ANY(input);
     int input_len = VARSIZE_ANY_EXHDR(input);
@@ -65,61 +93,6 @@ algorand_addr_encode(PG_FUNCTION_ARGS)
     PG_RETURN_TEXT_P(output);
 }
 
-///////////////////////////////////////////////////////////////////////////////
-
-PG_FUNCTION_INFO_V1(address_txt_2_bin);
-
-Datum
-address_txt_2_bin(PG_FUNCTION_ARGS) {
-
-	// get the C-string from function args
-	text *address = PG_GETARG_TEXT_PP(0);
-	int32 text_size = VARSIZE_ANY_EXHDR(address);
-	// copy it into a zero-terminated buffer
-	char *buf = (char*)palloc(text_size+1);
-	memcpy(buf, VARDATA_ANY(address), text_size);
-	buf[text_size] = 0;
-
-	// call the cgo implementation of this function
-	unsigned char out[32];
-	AddressTxt2Bin(buf, out);
-
-	// set the bytea-type return value
-	int32 bytea_size = 32 + VARHDRSZ;
-	bytea *new_bytea = (bytea*) palloc(bytea_size);
-	SET_VARSIZE(new_bytea, bytea_size);
-	memcpy(VARDATA(new_bytea), out, 32);
-	PG_RETURN_BYTEA_P(new_bytea);
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-PG_FUNCTION_INFO_V1(address_bin_2_txt);
-
-Datum
-address_bin_2_txt(PG_FUNCTION_ARGS) {
-
-	// get the bytea value from function args
-	bytea *address = PG_GETARG_BYTEA_PP(0);
-
-	int32 address_size = VARSIZE_ANY_EXHDR(address);
-	if (address_size != 32) {
-		elog_error("binary address must be 32 bytes long");
-	}
-
-	// allocate a char array for the result address
-	unsigned char buf[59];
-
-	// call the cgo implementation of this function
-	AddressBin2Txt((unsigned char*)VARDATA(address), buf);
-
-	// set the text-type return value
-	int32 text_size = 58 + VARHDRSZ;
-	text *new_text = (text*) palloc(text_size);
-	SET_VARSIZE(new_text, text_size);
-	memcpy(VARDATA(new_text), buf, 58);
-	PG_RETURN_TEXT_P(new_text);
-}
 
 ///////////////////////////////////////////////////////////////////////////////
 
