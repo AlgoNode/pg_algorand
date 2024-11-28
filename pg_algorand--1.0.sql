@@ -1,18 +1,19 @@
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "CREATE EXTENSION pg_algorand" to load this file. \quit
 
+
 CREATE OR REPLACE FUNCTION AddressTxt2Bin(
     address text
 )
     RETURNS bytea
     AS 'MODULE_PATHNAME', 'address_txt_2_bin'
-    LANGUAGE C STRICT IMMUTABLE;
+    LANGUAGE C STRICT IMMUTABLE PARALLEL SAFE;
 
 CREATE OR REPLACE FUNCTION AddressBin2Txt(
     address bytea
 )
     RETURNS text
-    AS 'MODULE_PATHNAME', 'address_bin_2_txt'
+    AS 'MODULE_PATHNAME', 'algorand_addr_encode'
     LANGUAGE C STRICT IMMUTABLE;
 
 CREATE OR REPLACE FUNCTION GetNFDSigNameLSIG(
