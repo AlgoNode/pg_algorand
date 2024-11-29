@@ -5,32 +5,102 @@ PG_MODULE_MAGIC;
 
 ///////////////////////////////////////////////////////////////////////////////
 
+static const int8 base32_decode_table[256] = {
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, // 0-15
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, // 16-31
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1, // 32-47
+    -1,-1,26,27,28,29,30,31,-1,-1,-1,-1,-1,-1,-1,-1, // 48-63
+    -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14, // 64-79
+    15,16,17,18,19,20,21,22,23,24,25,-1,-1,-1,-1,-1, // 80-95
+    -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14, // 96-111
+    15,16,17,18,19,20,21,22,23,24,25,-1,-1,-1,-1,-1  // 112-127
+};
+
 PG_FUNCTION_INFO_V1(address_txt_2_bin);
 
 Datum
-address_txt_2_bin(PG_FUNCTION_ARGS) {
-
-	// get the C-string from function args
-	text *address = PG_GETARG_TEXT_PP(0);
-	int32 text_size = VARSIZE_ANY_EXHDR(address);
-	// copy it into a zero-terminated buffer
-	char *buf = (char*)palloc(text_size+1);
-	memcpy(buf, VARDATA_ANY(address), text_size);
-	buf[text_size] = 0;
-
-	// call the cgo implementation of this function
-	unsigned char out[32];
-	AddressTxt2Bin(buf, out);
-
-	// set the bytea-type return value
-	int32 bytea_size = 32 + VARHDRSZ;
-	bytea *new_bytea = (bytea*) palloc(bytea_size);
-	SET_VARSIZE(new_bytea, bytea_size);
-	memcpy(VARDATA(new_bytea), out, 32);
-	PG_RETURN_BYTEA_P(new_bytea);
+address_txt_2_bin(PG_FUNCTION_ARGS)
+{
+    text *input = PG_GETARG_TEXT_PP(0);
+    char *str = VARDATA_ANY(input);
+    int str_len = VARSIZE_ANY_EXHDR(input);
+    
+    // Remove padding chars
+    while (str_len > 0 && str[str_len - 1] == '=')
+        str_len--;
+    
+    // Calculate output length (before truncation)
+    int output_len = (str_len * 5) / 8;
+    
+    // Allocate output buffer
+    bytea *result = (bytea *) palloc(VARHDRSZ + output_len);
+    unsigned char *out = (unsigned char *) VARDATA(result);
+    
+    int buffer = 0;
+    int bits_left = 0;
+    int out_index = 0;
+    
+    // Decode base32
+    for (int i = 0; i < str_len; i++) {
+        unsigned char c = str[i];
+        if (c >= sizeof(base32_decode_table) || base32_decode_table[c] == -1)
+            ereport(ERROR,
+                    (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                     errmsg("invalid base32 character")));
+                     
+        buffer = (buffer << 5) | base32_decode_table[c];
+        bits_left += 5;
+        
+        if (bits_left >= 8) {
+            if (out_index < output_len) {
+                out[out_index++] = (buffer >> (bits_left - 8)) & 0xFF;
+            }
+            bits_left -= 8;
+        }
+    }
+    
+    // Truncate last 4 bytes
+    output_len -= 4;
+    
+    // Check final length
+    if (output_len != 32)
+        ereport(ERROR,
+                (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                 errmsg("decoded length must be exactly 32 bytes (got %d bytes)", output_len)));
+    
+    SET_VARSIZE(result, VARHDRSZ + output_len);
+    PG_RETURN_BYTEA_P(result);
 }
 
+
+// Datum
+// address_txt_2_bin(PG_FUNCTION_ARGS) {
+
+// 	// get the C-string from function args
+// 	text *address = PG_GETARG_TEXT_PP(0);
+// 	int32 text_size = VARSIZE_ANY_EXHDR(address);
+// 	// copy it into a zero-terminated buffer
+// 	char *buf = (char*)palloc(text_size+1);
+// 	memcpy(buf, VARDATA_ANY(address), text_size);
+// 	buf[text_size] = 0;
+
+// 	// call the cgo implementation of this function
+// 	unsigned char out[32];
+// 	AddressTxt2Bin(buf, out);
+
+// 	// set the bytea-type return value
+// 	int32 bytea_size = 32 + VARHDRSZ;
+// 	bytea *new_bytea = (bytea*) palloc(bytea_size);
+// 	SET_VARSIZE(new_bytea, bytea_size);
+// 	memcpy(VARDATA(new_bytea), out, 32);
+// 	PG_RETURN_BYTEA_P(new_bytea);
+// }
+
 ///////////////////////////////////////////////////////////////////////////////
+
+// Base32 alphabet used by Algorand (RFC 4648 with lowercase)
+
+static const char base32_alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
 PG_FUNCTION_INFO_V1(address_bin_2_txt);
 

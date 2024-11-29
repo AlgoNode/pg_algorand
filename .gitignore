@@ -1,4 +1,5 @@
 functions.a
 functions.h
-pg_algorand.o
-pg_algorand.so
+*.o
+*.so
+build
