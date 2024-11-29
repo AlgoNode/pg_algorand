@@ -1,7 +1,7 @@
 MODULE_big = pg_algorand
-OBJS = algorand.o pg_algorand.o functions.a
+OBJS = sha512_256.o algoaddr.o pg_algorand.o functions.a
 override with_llvm = no
-EXTRA_CLEAN = algorand.o pg_algorand.o pg_algorand.so functions.a functions.h
+EXTRA_CLEAN = sha512_256.o algoaddr.o pg_algorand.o pg_algorand.so functions.a functions.h
 PG_CFLAGS = -Wno-declaration-after-statement
 
 EXTENSION = pg_algorand

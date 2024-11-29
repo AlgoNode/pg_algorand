@@ -1,5 +1,5 @@
 #include "functions.h"
-#include "algorand.h"
+#include "sha512_256.h"
 
 PG_MODULE_MAGIC;
 
@@ -73,32 +73,9 @@ address_txt_2_bin(PG_FUNCTION_ARGS)
 }
 
 
-// Datum
-// address_txt_2_bin(PG_FUNCTION_ARGS) {
-
-// 	// get the C-string from function args
-// 	text *address = PG_GETARG_TEXT_PP(0);
-// 	int32 text_size = VARSIZE_ANY_EXHDR(address);
-// 	// copy it into a zero-terminated buffer
-// 	char *buf = (char*)palloc(text_size+1);
-// 	memcpy(buf, VARDATA_ANY(address), text_size);
-// 	buf[text_size] = 0;
-
-// 	// call the cgo implementation of this function
-// 	unsigned char out[32];
-// 	AddressTxt2Bin(buf, out);
-
-// 	// set the bytea-type return value
-// 	int32 bytea_size = 32 + VARHDRSZ;
-// 	bytea *new_bytea = (bytea*) palloc(bytea_size);
-// 	SET_VARSIZE(new_bytea, bytea_size);
-// 	memcpy(VARDATA(new_bytea), out, 32);
-// 	PG_RETURN_BYTEA_P(new_bytea);
-// }
-
 ///////////////////////////////////////////////////////////////////////////////
 
-// Base32 alphabet used by Algorand (RFC 4648 with lowercase)
+// Base32 alphabet used by Algorand 
 
 static const char base32_alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 

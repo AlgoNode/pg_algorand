@@ -1,7 +1,7 @@
 #include "postgres.h"
 #include "fmgr.h"
 #include "utils/builtins.h"
-#include "algorand.h"
+#include "sha512_256.h"
 
 #include <stdint.h>
 #include <string.h>
