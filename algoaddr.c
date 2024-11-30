@@ -1,30 +1,20 @@
 #include "postgres.h"
+#include "varatt.h"
 #include "fmgr.h"
 #include "utils/builtins.h"
+#include "utils/bytea.h"
 #include "libpq/pqformat.h"
 #include "access/hash.h"
+#include "utils/varlena.h"
 #include "sha512_256.h"
 
 #define ALGO_ADDR_SIZE 32
-
-typedef struct AlgoAddr
-{
-    uint8_t data[ALGO_ADDR_SIZE];
-} AlgoAddr;
 
 // Function declarations
 PG_FUNCTION_INFO_V1(algoaddr_in);
 PG_FUNCTION_INFO_V1(algoaddr_out);
 PG_FUNCTION_INFO_V1(algoaddr_recv);
 PG_FUNCTION_INFO_V1(algoaddr_send);
-PG_FUNCTION_INFO_V1(algoaddr_eq);
-PG_FUNCTION_INFO_V1(algoaddr_ne);
-PG_FUNCTION_INFO_V1(algoaddr_lt);
-PG_FUNCTION_INFO_V1(algoaddr_le);
-PG_FUNCTION_INFO_V1(algoaddr_gt);
-PG_FUNCTION_INFO_V1(algoaddr_ge);
-PG_FUNCTION_INFO_V1(algoaddr_cmp);
-PG_FUNCTION_INFO_V1(algoaddr_hash);
 
 // Algorand Base32 alphabet
 static const char BASE32_ALPHABET[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -81,8 +71,8 @@ static int base32_encode(const uint8 *input, int input_len, char *output)
 
         while (bits_in_buffer >= 5)
         {
+            output[output_len++] = BASE32_ALPHABET[(buffer >> (bits_in_buffer - 5)) & 0x1F];
             bits_in_buffer -= 5;
-            output[output_len++] = BASE32_ALPHABET[(buffer >> bits_in_buffer) & 0x1F];
         }
     }
 
@@ -120,34 +110,38 @@ algoaddr_in(PG_FUNCTION_ARGS)
                 (errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
                  errmsg("invalid decoded length: expected 36 bytes, got %d", byte_len)));
     
-    // Allocate result
-    AlgoAddr *result = (AlgoAddr *) palloc(sizeof(AlgoAddr));
+    // Create bytea with only first 32 bytes (excluding checksum)
+    bytea *result = (bytea *) palloc(VARHDRSZ + ALGO_ADDR_SIZE);
+    SET_VARSIZE(result, VARHDRSZ + ALGO_ADDR_SIZE);
+    memcpy(VARDATA(result), temp_bytes, ALGO_ADDR_SIZE);
     
-    // Copy only the first 32 bytes (excluding checksum)
-    memcpy(result->data, temp_bytes, ALGO_ADDR_SIZE);
-    
-    PG_RETURN_POINTER(result);
+    PG_RETURN_BYTEA_P(result);
 }
 
 // Output function
 Datum
 algoaddr_out(PG_FUNCTION_ARGS)
 {
-    AlgoAddr *addr = (AlgoAddr *) PG_GETARG_POINTER(0);
-    // Need space for base32 encoding of 32 bytes plus checksum (36 bytes total)
-    char *result = palloc(60); // Safe size for base32 encoding of 36 bytes
+    bytea *addr = PG_GETARG_BYTEA_PP(0);
+    int addr_len = VARSIZE_ANY_EXHDR(addr);
+    
+    if (addr_len != ALGO_ADDR_SIZE)
+        ereport(ERROR,
+                (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                 errmsg("invalid internal address length: expected %d bytes, got %d",
+                        ALGO_ADDR_SIZE, addr_len)));
     
     uint8_t checksum[32];
     uint8 temp_bytes[36];
     // Copy address data
-    memcpy(temp_bytes, addr->data, ALGO_ADDR_SIZE);
+    memcpy(temp_bytes, VARDATA_ANY(addr), ALGO_ADDR_SIZE);
     
     // Calculate SHA512/256 of the public key
-    pg_sha512_256(addr->data, 32, checksum);
-
-    // Append last 4 bytes of checksum to addr_data
+    pg_sha512_256((uint8_t*)VARDATA_ANY(addr), 32, checksum);
     memcpy(temp_bytes + ALGO_ADDR_SIZE, checksum + 28, 4);
     
+    // Need space for base32 encoding of 36 bytes
+    char *result = palloc(60);
     base32_encode(temp_bytes, 36, result);
     
     PG_RETURN_CSTRING(result);
@@ -158,106 +152,36 @@ Datum
 algoaddr_recv(PG_FUNCTION_ARGS)
 {
     StringInfo buf = (StringInfo) PG_GETARG_POINTER(0);
+    int nbytes = buf->len - buf->cursor;
     
-    if (buf->len - buf->cursor != ALGO_ADDR_SIZE)
+    if (nbytes != ALGO_ADDR_SIZE)
         ereport(ERROR,
                 (errcode(ERRCODE_INVALID_BINARY_REPRESENTATION),
                  errmsg("invalid address length in binary format")));
     
-    AlgoAddr *result = (AlgoAddr *) palloc(sizeof(AlgoAddr));
-    memcpy(result->data, &buf->data[buf->cursor], ALGO_ADDR_SIZE);
+    bytea *result = (bytea *) palloc(VARHDRSZ + ALGO_ADDR_SIZE);
+    SET_VARSIZE(result, VARHDRSZ + ALGO_ADDR_SIZE);
+    memcpy(VARDATA(result), &buf->data[buf->cursor], ALGO_ADDR_SIZE);
     buf->cursor += ALGO_ADDR_SIZE;
     
-    PG_RETURN_POINTER(result);
+    PG_RETURN_BYTEA_P(result);
 }
 
 // Binary output function
 Datum
 algoaddr_send(PG_FUNCTION_ARGS)
 {
-    AlgoAddr *addr = (AlgoAddr *) PG_GETARG_POINTER(0);
+    bytea *addr = PG_GETARG_BYTEA_PP(0);
     StringInfoData buf;
     
+    if (VARSIZE_ANY_EXHDR(addr) != ALGO_ADDR_SIZE)
+        ereport(ERROR,
+                (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                 errmsg("invalid internal address length")));
+    
     pq_begintypsend(&buf);
-    pq_sendbytes(&buf, addr->data, ALGO_ADDR_SIZE);
+    pq_sendbytes(&buf, VARDATA_ANY(addr), ALGO_ADDR_SIZE);
     
     PG_RETURN_BYTEA_P(pq_endtypsend(&buf));
 }
 
-// Equality operator
-Datum
-algoaddr_eq(PG_FUNCTION_ARGS)
-{
-    AlgoAddr *a = (AlgoAddr *) PG_GETARG_POINTER(0);
-    AlgoAddr *b = (AlgoAddr *) PG_GETARG_POINTER(1);
-    
-    PG_RETURN_BOOL(memcmp(a->data, b->data, ALGO_ADDR_SIZE) == 0);
-}
-
-// Inequality operator
-Datum
-algoaddr_ne(PG_FUNCTION_ARGS)
-{
-    AlgoAddr *a = (AlgoAddr *) PG_GETARG_POINTER(0);
-    AlgoAddr *b = (AlgoAddr *) PG_GETARG_POINTER(1);
-    
-    PG_RETURN_BOOL(memcmp(a->data, b->data, ALGO_ADDR_SIZE) != 0);
-}
-
-// Less than operator
-Datum
-algoaddr_lt(PG_FUNCTION_ARGS)
-{
-    AlgoAddr *a = (AlgoAddr *) PG_GETARG_POINTER(0);
-    AlgoAddr *b = (AlgoAddr *) PG_GETARG_POINTER(1);
-    
-    PG_RETURN_BOOL(memcmp(a->data, b->data, ALGO_ADDR_SIZE) < 0);
-}
-
-// Less than or equal operator
-Datum
-algoaddr_le(PG_FUNCTION_ARGS)
-{
-    AlgoAddr *a = (AlgoAddr *) PG_GETARG_POINTER(0);
-    AlgoAddr *b = (AlgoAddr *) PG_GETARG_POINTER(1);
-    
-    PG_RETURN_BOOL(memcmp(a->data, b->data, ALGO_ADDR_SIZE) <= 0);
-}
-
-// Greater than operator
-Datum
-algoaddr_gt(PG_FUNCTION_ARGS)
-{
-    AlgoAddr *a = (AlgoAddr *) PG_GETARG_POINTER(0);
-    AlgoAddr *b = (AlgoAddr *) PG_GETARG_POINTER(1);
-    
-    PG_RETURN_BOOL(memcmp(a->data, b->data, ALGO_ADDR_SIZE) > 0);
-}
-
-// Greater than or equal operator
-Datum
-algoaddr_ge(PG_FUNCTION_ARGS)
-{
-    AlgoAddr *a = (AlgoAddr *) PG_GETARG_POINTER(0);
-    AlgoAddr *b = (AlgoAddr *) PG_GETARG_POINTER(1);
-    
-    PG_RETURN_BOOL(memcmp(a->data, b->data, ALGO_ADDR_SIZE) >= 0);
-}
-
-// Comparison function
-Datum
-algoaddr_cmp(PG_FUNCTION_ARGS)
-{
-    AlgoAddr *a = (AlgoAddr *) PG_GETARG_POINTER(0);
-    AlgoAddr *b = (AlgoAddr *) PG_GETARG_POINTER(1);
-    
-    return memcmp(a->data, b->data, ALGO_ADDR_SIZE);
-}
-
-// Hash function
-Datum
-algoaddr_hash(PG_FUNCTION_ARGS)
-{
-    AlgoAddr *addr = (AlgoAddr *) PG_GETARG_POINTER(0);
-    return hash_any((unsigned char *)addr->data, ALGO_ADDR_SIZE);
-}
