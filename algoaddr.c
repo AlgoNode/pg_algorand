@@ -15,6 +15,10 @@ PG_FUNCTION_INFO_V1(algoaddr_in);
 PG_FUNCTION_INFO_V1(algoaddr_out);
 PG_FUNCTION_INFO_V1(algoaddr_recv);
 PG_FUNCTION_INFO_V1(algoaddr_send);
+PG_FUNCTION_INFO_V1(text_to_algoaddr);
+PG_FUNCTION_INFO_V1(algoaddr_to_text);
+
+
 
 // Algorand Base32 alphabet
 static const char BASE32_ALPHABET[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -185,3 +189,34 @@ algoaddr_send(PG_FUNCTION_ARGS)
     PG_RETURN_BYTEA_P(pq_endtypsend(&buf));
 }
 
+// text -> algoaddr cast function
+Datum
+text_to_algoaddr(PG_FUNCTION_ARGS)
+{
+    text *txt = PG_GETARG_TEXT_PP(0);
+    int txt_len = VARSIZE_ANY_EXHDR(txt);
+    char *str = palloc(txt_len + 1);
+    
+    memcpy(str, VARDATA_ANY(txt), txt_len);
+    str[txt_len] = '\0';
+    
+    // Use the existing input function for conversion
+    Datum result = DirectFunctionCall1(algoaddr_in, CStringGetDatum(str));
+    
+    pfree(str);
+    PG_RETURN_DATUM(result);
+}
+
+// algoaddr -> text cast function
+Datum
+algoaddr_to_text(PG_FUNCTION_ARGS)
+{
+    // Use the existing output function to get cstring
+    char *str = DatumGetCString(DirectFunctionCall1(algoaddr_out, PG_GETARG_DATUM(0)));
+    
+    // Convert cstring to text
+    text *result = cstring_to_text(str);
+    
+    pfree(str);
+    PG_RETURN_TEXT_P(result);
+}

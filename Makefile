@@ -2,7 +2,9 @@ MODULE_big = pg_algorand
 OBJS = sha512_256.o algoaddr.o pg_algorand.o functions.a
 override with_llvm = no
 EXTRA_CLEAN = sha512_256.o algoaddr.o pg_algorand.o pg_algorand.so functions.a functions.h
-PG_CFLAGS = -Wno-declaration-after-statement
+PG_CFLAGS = -Wno-declaration-after-statement 
+
+#-march=native -O3 -ffast-math -funroll-loops
 
 EXTENSION = pg_algorand
 DATA = pg_algorand--1.0.sql

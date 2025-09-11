@@ -198,4 +198,3 @@ void pg_sha512_256(const uint8_t *data, size_t len, uint8_t hash[32]) {
     sha512_256_final(state, hash, data, len);
 }
 
-

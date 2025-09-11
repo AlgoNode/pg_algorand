@@ -60,8 +60,6 @@ CREATE FUNCTION algoaddr_send(algoaddr) RETURNS bytea
 -- Create the type with I/O functions
 CREATE TYPE algoaddr (
     LIKE = bytea,
---    INTERNALLENGTH = VARIABLE,
---    STORAGE = extended,
     INPUT = algoaddr_in,
     OUTPUT = algoaddr_out,
     RECEIVE = algoaddr_recv,
@@ -71,3 +69,6 @@ CREATE TYPE algoaddr (
 -- -- Create the casts
 CREATE CAST (bytea AS algoaddr) WITHOUT FUNCTION AS IMPLICIT;
 CREATE CAST (algoaddr AS bytea) WITHOUT FUNCTION AS IMPLICIT;        
+
+-- CREATE CAST (text AS algoaddr) WITH FUNCTION text_to_algoaddr(text) AS IMPLICIT;
+-- CREATE CAST (algoaddr AS text) WITH FUNCTION algoaddr_to_text(algoaddr) AS IMPLICIT;
