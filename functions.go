@@ -195,6 +195,10 @@ func getLookupLSIG(prefixBytes, lookupBytes string, registryAppID uint64) (crypt
 	nBytes := binary.PutUvarint(uvarIntBytes, uint64(len(bytesToAppend)))
 	composedBytecode := bytes.Join([][]byte{sigLookupByteCode, uvarIntBytes[:nBytes], bytesToAppend}, nil)
 
-	logicSig := crypto.MakeLogicSigAccountEscrow(composedBytecode, [][]byte{})
+	logicSig, err := crypto.MakeLogicSigAccountEscrowChecked(composedBytecode, [][]byte{})
+	if err != nil {
+		return crypto.LogicSigAccount{}, err
+	}
+
 	return logicSig, nil
 }
