@@ -141,6 +141,7 @@ AddressBin2Txt(PG_FUNCTION_ARGS) {
 }
 
 
+
 ///////////////////////////////////////////////////////////////////////////////
 
 PG_FUNCTION_INFO_V1(GetNFDSigNameLSIG);
@@ -230,6 +231,69 @@ GetNFDSigRevAddressBinLSIG(PG_FUNCTION_ARGS) {
 	memcpy(VARDATA(new_bytea), output, 32);
 	PG_RETURN_BYTEA_P(new_bytea);
 }
+
+////////////////////// FAKE
+PG_FUNCTION_INFO_V1(TxnBin2Txt);
+
+Datum
+TxnBin2Txt(PG_FUNCTION_ARGS) {
+    bytea *input = PG_GETARG_BYTEA_PP(0);
+    uint8_t *pubkey = (uint8_t *) VARDATA_ANY(input);
+    int input_len = VARSIZE_ANY_EXHDR(input);
+    
+    // Validate input length (must be 32 bytes)
+    if (input_len != 32) {
+        ereport(ERROR,
+                (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                 errmsg("input must be exactly 32 bytes")));
+    }
+    
+    // Calculate checksum (SHA512/256 truncated to 4 bytes)
+    uint8_t checksum[32];
+    uint8_t addr_data[36]; // 32 bytes public key + 4 bytes checksum
+    
+    // Copy public key to addr_data
+    memcpy(addr_data, pubkey, 32);
+    
+    // Calculate SHA512/256 of the public key
+    pg_sha512_256(addr_data, 32, checksum);
+    
+    // Append last 4 bytes of checksum to addr_data
+    memcpy(addr_data + 32, checksum + 28, 4);
+    
+    // Encode in base32
+    // Each 5 bits becomes one base32 character
+    // 36 bytes * 8 = 288 bits
+    // 288 bits / 5 = 58 characters (with padding)
+    text *output = (text *) palloc(VARHDRSZ + 59); // 58 chars + null terminator
+    char *result = VARDATA(output);
+    
+    int i, j = 0;
+    uint64_t buffer = 0;
+    int bits_in_buffer = 0;
+    
+    for (i = 0; i < 36; i++) {
+        buffer = (buffer << 8) | addr_data[i];
+        bits_in_buffer += 8;
+        
+        while (bits_in_buffer >= 5) {
+            bits_in_buffer -= 5;
+            result[j++] = base32_alphabet[(buffer >> bits_in_buffer) & 0x1F];
+        }
+    }
+    
+    // Handle remaining bits
+    if (bits_in_buffer > 0) {
+        buffer <<= (5 - bits_in_buffer);
+        result[j++] = base32_alphabet[buffer & 0x1F];
+    }
+    
+    result[j] = '\0';
+    SET_VARSIZE(output, VARHDRSZ + j);
+    
+    PG_RETURN_TEXT_P(output);
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////
 
