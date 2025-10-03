@@ -6,14 +6,14 @@ CREATE OR REPLACE FUNCTION AddressTxt2Bin(
     data text
 )
     RETURNS bytea
-    AS 'MODULE_PATHNAME', 'address_txt_2_bin'
+    AS 'MODULE_PATHNAME', 'addresstxt2bin'
     LANGUAGE C STRICT IMMUTABLE PARALLEL SAFE;
 
 CREATE OR REPLACE FUNCTION AddressBin2Txt(
     data bytea
 )
     RETURNS text
-    AS 'MODULE_PATHNAME', 'address_bin_2_txt'
+    AS 'MODULE_PATHNAME', 'addressbin2txt'
     LANGUAGE C STRICT IMMUTABLE PARALLEL SAFE;
 
 CREATE OR REPLACE FUNCTION GetNFDSigNameLSIG(

@@ -21,7 +21,7 @@ include $(PGXS)
 our-default: pre-step all
 
 pre-step:
-	@echo "Building GO functions..."
-	CGO_ENABLED=1 go build -buildmode=c-archive functions.go
+	@echo "Building GO functions... $(includedir_server)"
+	CGO_CFLAGS="-I $(includedir_server)" CGO_ENABLED=1 go build -buildmode=c-archive functions.go
 
 .PHONY: our-default pre-step

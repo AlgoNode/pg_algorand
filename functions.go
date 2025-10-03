@@ -48,8 +48,8 @@ import (
 
 func main() {}
 
-//export AddressTxt2Bin
-func AddressTxt2Bin(
+//export AddressTxt2BinGO
+func AddressTxt2BinGO(
 	p *C.char,
 	out *byte, // len is 32 by convention
 ) {
@@ -70,8 +70,8 @@ func AddressTxt2Bin(
 	copy(array, addr[:])
 }
 
-//export AddressBin2Txt
-func AddressBin2Txt(
+//export AddressBin2TxtGO
+func AddressBin2TxtGO(
 	in *byte,
 	out *byte,
 ) {

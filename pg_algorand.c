@@ -16,10 +16,10 @@ static const int8 base32_decode_table[256] = {
     15,16,17,18,19,20,21,22,23,24,25,-1,-1,-1,-1,-1  // 112-127
 };
 
-PG_FUNCTION_INFO_V1(address_txt_2_bin);
+PG_FUNCTION_INFO_V1(AddressTxt2Bin);
 
 Datum
-address_txt_2_bin(PG_FUNCTION_ARGS)
+AddressTxt2Bin(PG_FUNCTION_ARGS)
 {
     text *input = PG_GETARG_TEXT_PP(0);
     char *str = VARDATA_ANY(input);
@@ -79,10 +79,10 @@ address_txt_2_bin(PG_FUNCTION_ARGS)
 
 static const char base32_alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
-PG_FUNCTION_INFO_V1(address_bin_2_txt);
+PG_FUNCTION_INFO_V1(AddressBin2Txt);
 
 Datum
-address_bin_2_txt(PG_FUNCTION_ARGS) {
+AddressBin2Txt(PG_FUNCTION_ARGS) {
     bytea *input = PG_GETARG_BYTEA_PP(0);
     uint8_t *pubkey = (uint8_t *) VARDATA_ANY(input);
     int input_len = VARSIZE_ANY_EXHDR(input);
