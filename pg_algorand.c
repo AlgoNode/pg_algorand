@@ -143,10 +143,10 @@ AddressBin2Txt(PG_FUNCTION_ARGS) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-PG_FUNCTION_INFO_V1(getnfdsignamelsig);
+PG_FUNCTION_INFO_V1(GetNFDSigNameLSIG);
 
 Datum
-getnfdsignamelsig(PG_FUNCTION_ARGS) {
+GetNFDSigNameLSIG(PG_FUNCTION_ARGS) {
 
 	// get the C-string from function args
 	text *name = PG_GETARG_TEXT_PP(0);
@@ -173,10 +173,10 @@ getnfdsignamelsig(PG_FUNCTION_ARGS) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-PG_FUNCTION_INFO_V1(getnfdsigrevaddresslsig);
+PG_FUNCTION_INFO_V1(GetNFDSigRevAddressLSIG);
 
 Datum
-getnfdsigrevaddresslsig(PG_FUNCTION_ARGS) {
+GetNFDSigRevAddressLSIG(PG_FUNCTION_ARGS) {
 
 	// get the C-string from function args
 	text *name = PG_GETARG_TEXT_PP(0);
@@ -203,10 +203,10 @@ getnfdsigrevaddresslsig(PG_FUNCTION_ARGS) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-PG_FUNCTION_INFO_V1(getnfdsigrevaddressbinlsig);
+PG_FUNCTION_INFO_V1(GetNFDSigRevAddressBinLSIG);
 
 Datum
-getnfdsigrevaddressbinlsig(PG_FUNCTION_ARGS) {
+GetNFDSigRevAddressBinLSIG(PG_FUNCTION_ARGS) {
 
 	// get the bytea value from function args
 	bytea *address = PG_GETARG_BYTEA_PP(0);
