@@ -6,14 +6,14 @@ CREATE OR REPLACE FUNCTION AddressTxt2Bin(
     data text
 )
     RETURNS bytea
-    AS 'MODULE_PATHNAME', 'addresstxt2bin'
+    AS 'MODULE_PATHNAME', 'AddressTxt2Bin'
     LANGUAGE C STRICT IMMUTABLE PARALLEL SAFE;
 
 CREATE OR REPLACE FUNCTION AddressBin2Txt(
     data bytea
 )
     RETURNS text
-    AS 'MODULE_PATHNAME', 'addressbin2txt'
+    AS 'MODULE_PATHNAME', 'AddressBin2Txt'
     LANGUAGE C STRICT IMMUTABLE PARALLEL SAFE;
 
 CREATE OR REPLACE FUNCTION GetNFDSigNameLSIG(
@@ -21,7 +21,7 @@ CREATE OR REPLACE FUNCTION GetNFDSigNameLSIG(
     registry_app_id int8
 )
     RETURNS bytea
-    AS 'MODULE_PATHNAME', 'get_nfd_sig_name_lsig'
+    AS 'MODULE_PATHNAME', 'GetNFDSigNameLSIG'
     LANGUAGE C STRICT IMMUTABLE;
 
 CREATE OR REPLACE FUNCTION GetNFDSigRevAddressLSIG(
@@ -29,7 +29,7 @@ CREATE OR REPLACE FUNCTION GetNFDSigRevAddressLSIG(
     registry_app_id int8
 )
     RETURNS bytea
-    AS 'MODULE_PATHNAME', 'get_nfd_sig_rev_address_lsig'
+    AS 'MODULE_PATHNAME', 'GetNFDSigRevAddressLSIG'
     LANGUAGE C STRICT IMMUTABLE;
 
 CREATE OR REPLACE FUNCTION GetNFDSigRevAddressBinLSIG(
@@ -37,7 +37,7 @@ CREATE OR REPLACE FUNCTION GetNFDSigRevAddressBinLSIG(
     registry_app_id int8
 )
     RETURNS bytea
-    AS 'MODULE_PATHNAME', 'get_nfd_sig_rev_address_bin_lsig'
+    AS 'MODULE_PATHNAME', 'GetNFDSigRevAddressBinLSIG'
     LANGUAGE C STRICT IMMUTABLE;
 
 -- Create the functions
