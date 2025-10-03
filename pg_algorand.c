@@ -294,6 +294,62 @@ TxnBin2Txt(PG_FUNCTION_ARGS) {
     PG_RETURN_TEXT_P(output);
 }
 
+PG_FUNCTION_INFO_V1(TxnTxt2Bin);
+
+Datum
+TxnTxt2Bin(PG_FUNCTION_ARGS)
+{
+    text *input = PG_GETARG_TEXT_PP(0);
+    char *str = VARDATA_ANY(input);
+    int str_len = VARSIZE_ANY_EXHDR(input);
+    
+    // Remove padding chars
+    while (str_len > 0 && str[str_len - 1] == '=')
+        str_len--;
+    
+    // Calculate output length (before truncation)
+    int output_len = (str_len * 5) / 8;
+    
+    // Allocate output buffer
+    bytea *result = (bytea *) palloc(VARHDRSZ + output_len);
+    unsigned char *out = (unsigned char *) VARDATA(result);
+    
+    int buffer = 0;
+    int bits_left = 0;
+    int out_index = 0;
+    
+    // Decode base32
+    for (int i = 0; i < str_len; i++) {
+        unsigned char c = str[i];
+        if (c >= sizeof(base32_decode_table) || base32_decode_table[c] == -1)
+            ereport(ERROR,
+                    (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                     errmsg("invalid base32 character")));
+                     
+        buffer = (buffer << 5) | base32_decode_table[c];
+        bits_left += 5;
+        
+        if (bits_left >= 8) {
+            if (out_index < output_len) {
+                out[out_index++] = (buffer >> (bits_left - 8)) & 0xFF;
+            }
+            bits_left -= 8;
+        }
+    }
+    
+    // Truncate last 4 bytes
+    output_len -= 4;
+    
+    // Check final length
+    if (output_len != 32)
+        ereport(ERROR,
+                (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                 errmsg("decoded length must be exactly 32 bytes (got %d bytes)", output_len)));
+    
+    SET_VARSIZE(result, VARHDRSZ + output_len);
+    PG_RETURN_BYTEA_P(result);
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////
 
