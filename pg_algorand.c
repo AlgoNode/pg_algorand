@@ -143,10 +143,10 @@ AddressBin2Txt(PG_FUNCTION_ARGS) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-PG_FUNCTION_INFO_V1(get_nfd_sig_name_lsig);
+PG_FUNCTION_INFO_V1(getnfdsignamelsig);
 
 Datum
-get_nfd_sig_name_lsig(PG_FUNCTION_ARGS) {
+getnfdsignamelsig(PG_FUNCTION_ARGS) {
 
 	// get the C-string from function args
 	text *name = PG_GETARG_TEXT_PP(0);
@@ -161,7 +161,7 @@ get_nfd_sig_name_lsig(PG_FUNCTION_ARGS) {
 
 	// call the cgo implementation of this function
 	unsigned char address[32];
-	GetNFDSigNameLSIG(buf, registry_app_id, address);
+	GetNFDSigNameLSIGGO(buf, registry_app_id, address);
 
 	// set the bytea-type return value
 	int32 bytea_size = 32 + VARHDRSZ;
@@ -173,10 +173,10 @@ get_nfd_sig_name_lsig(PG_FUNCTION_ARGS) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-PG_FUNCTION_INFO_V1(get_nfd_sig_rev_address_lsig);
+PG_FUNCTION_INFO_V1(getnfdsigrevaddresslsig);
 
 Datum
-get_nfd_sig_rev_address_lsig(PG_FUNCTION_ARGS) {
+getnfdsigrevaddresslsig(PG_FUNCTION_ARGS) {
 
 	// get the C-string from function args
 	text *name = PG_GETARG_TEXT_PP(0);
@@ -191,7 +191,7 @@ get_nfd_sig_rev_address_lsig(PG_FUNCTION_ARGS) {
 
 	// call the cgo implementation of this function
 	unsigned char address[32];
-	GetNFDSigRevAddressLSIG(buf, registry_app_id, address);
+	GetNFDSigRevAddressLSIGGO(buf, registry_app_id, address);
 
 	// set the bytea-type return value
 	int32 bytea_size = 32 + VARHDRSZ;
@@ -203,10 +203,10 @@ get_nfd_sig_rev_address_lsig(PG_FUNCTION_ARGS) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-PG_FUNCTION_INFO_V1(get_nfd_sig_rev_address_bin_lsig);
+PG_FUNCTION_INFO_V1(getnfdsigrevaddressbinlsig);
 
 Datum
-get_nfd_sig_rev_address_bin_lsig(PG_FUNCTION_ARGS) {
+getnfdsigrevaddressbinlsig(PG_FUNCTION_ARGS) {
 
 	// get the bytea value from function args
 	bytea *address = PG_GETARG_BYTEA_PP(0);
@@ -221,7 +221,7 @@ get_nfd_sig_rev_address_bin_lsig(PG_FUNCTION_ARGS) {
 
 	// call the cgo implementation of this function
 	unsigned char output[32];
-	GetNFDSigRevAddressBinLSIG((unsigned char*)(VARDATA(address)), registry_app_id, output);
+	GetNFDSigRevAddressBinLSIGGO((unsigned char*)(VARDATA(address)), registry_app_id, output);
 
 	// set the bytea-type return value
 	int32 bytea_size = 32 + VARHDRSZ;

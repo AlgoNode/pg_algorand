@@ -92,8 +92,8 @@ func AddressBin2TxtGO(
 	copy(array, []byte(addr))
 }
 
-//export GetNFDSigNameLSIG
-func GetNFDSigNameLSIG(
+//export GetNFDSigNameLSIGGO
+func GetNFDSigNameLSIGGO(
 	pNfdName *C.char,
 	registryAppID int64,
 	out *byte,
@@ -121,8 +121,8 @@ func GetNFDSigNameLSIG(
 	copy(array, addr[:])
 }
 
-//export GetNFDSigRevAddressLSIG
-func GetNFDSigRevAddressLSIG(
+//export GetNFDSigRevAddressLSIGGO
+func GetNFDSigRevAddressLSIGGO(
 	pPointedToAddress *C.char,
 	registryAppID int64,
 	out *byte,
@@ -148,8 +148,8 @@ func GetNFDSigRevAddressLSIG(
 	copy(array, addr[:])
 }
 
-//export GetNFDSigRevAddressBinLSIG
-func GetNFDSigRevAddressBinLSIG(
+//export GetNFDSigRevAddressBinLSIGGO
+func GetNFDSigRevAddressBinLSIGGO(
 	pPointedToAddressBin *byte,
 	registryAppID int64,
 	out *byte,
