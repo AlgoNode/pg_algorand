@@ -3,14 +3,14 @@
 
 
 CREATE OR REPLACE FUNCTION AddressTxt2Bin(
-    address text
+    data text
 )
     RETURNS bytea
     AS 'MODULE_PATHNAME', 'address_txt_2_bin'
     LANGUAGE C STRICT IMMUTABLE PARALLEL SAFE;
 
 CREATE OR REPLACE FUNCTION AddressBin2Txt(
-    address bytea
+    data bytea
 )
     RETURNS text
     AS 'MODULE_PATHNAME', 'address_bin_2_txt'
