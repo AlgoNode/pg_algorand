@@ -7,7 +7,7 @@ PG_CFLAGS = -Wno-declaration-after-statement
 #-march=native -O3 -ffast-math -funroll-loops
 
 EXTENSION = pg_algorand
-DATA = pg_algorand--1.0.sql
+DATA = pg_algorand--1.0.sql pg_algorand--0.2--1.0.sql
 PGFILEDESC = "Algorand extension for postgresql"
 
 REGRESS = pg_algorand
