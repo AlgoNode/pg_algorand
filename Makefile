@@ -1,13 +1,12 @@
 MODULE_big = pg_algorand
-OBJS = sha512_256.o algoaddr.o pg_algorand.o functions.a
+OBJS = sha512_256.o algoaddr.o nfd_lsig.o pg_algorand.o
 override with_llvm = no
-EXTRA_CLEAN = sha512_256.o algoaddr.o pg_algorand.o pg_algorand.so functions.a functions.h
-PG_CFLAGS = -Wno-declaration-after-statement 
+PG_CFLAGS = -Wno-declaration-after-statement
 
 #-march=native -O3 -ffast-math -funroll-loops
 
 EXTENSION = pg_algorand
-DATA = pg_algorand--1.0.sql pg_algorand--0.2--1.0.sql
+DATA = pg_algorand--2.0.sql pg_algorand--1.0--2.0.sql pg_algorand--1.0.sql pg_algorand--0.2--1.0.sql
 PGFILEDESC = "Algorand extension for postgresql"
 
 REGRESS = pg_algorand
@@ -15,13 +14,3 @@ REGRESS = pg_algorand
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
-
-.DEFAULT_GOAL := our-default
-
-our-default: pre-step all
-
-pre-step:
-	@echo "Building GO functions... $(includedir_server)"
-	CGO_CFLAGS="-I $(includedir_server)" CGO_ENABLED=1 go build -buildmode=c-archive functions.go
-
-.PHONY: our-default pre-step

@@ -1,5 +1,8 @@
-#include "functions.h"
+#include "postgres.h"
+#include "varatt.h"
+#include "fmgr.h"
 #include "sha512_256.h"
+#include "nfd_lsig.h"
 
 PG_MODULE_MAGIC;
 
@@ -24,22 +27,22 @@ AddressTxt2Bin(PG_FUNCTION_ARGS)
     text *input = PG_GETARG_TEXT_PP(0);
     char *str = VARDATA_ANY(input);
     int str_len = VARSIZE_ANY_EXHDR(input);
-    
+
     // Remove padding chars
     while (str_len > 0 && str[str_len - 1] == '=')
         str_len--;
-    
+
     // Calculate output length (before truncation)
     int output_len = (str_len * 5) / 8;
-    
+
     // Allocate output buffer
     bytea *result = (bytea *) palloc(VARHDRSZ + output_len);
     unsigned char *out = (unsigned char *) VARDATA(result);
-    
+
     int buffer = 0;
     int bits_left = 0;
     int out_index = 0;
-    
+
     // Decode base32
     for (int i = 0; i < str_len; i++) {
         unsigned char c = str[i];
@@ -47,10 +50,10 @@ AddressTxt2Bin(PG_FUNCTION_ARGS)
             ereport(ERROR,
                     (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                      errmsg("invalid base32 character")));
-                     
+
         buffer = (buffer << 5) | base32_decode_table[c];
         bits_left += 5;
-        
+
         if (bits_left >= 8) {
             if (out_index < output_len) {
                 out[out_index++] = (buffer >> (bits_left - 8)) & 0xFF;
@@ -58,26 +61,22 @@ AddressTxt2Bin(PG_FUNCTION_ARGS)
             bits_left -= 8;
         }
     }
-    
+
     // Truncate last 4 bytes
     output_len -= 4;
-    
+
     // Check final length
     if (output_len != 32)
         ereport(ERROR,
                 (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                  errmsg("decoded length must be exactly 32 bytes (got %d bytes)", output_len)));
-    
+
     SET_VARSIZE(result, VARHDRSZ + output_len);
     PG_RETURN_BYTEA_P(result);
 }
 
 
 ///////////////////////////////////////////////////////////////////////////////
-
-// Base32 alphabet used by Algorand 
-
-static const char base32_alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
 PG_FUNCTION_INFO_V1(AddressBin2Txt);
 
@@ -86,61 +85,47 @@ AddressBin2Txt(PG_FUNCTION_ARGS) {
     bytea *input = PG_GETARG_BYTEA_PP(0);
     uint8_t *pubkey = (uint8_t *) VARDATA_ANY(input);
     int input_len = VARSIZE_ANY_EXHDR(input);
-    
+
     // Validate input length (must be 32 bytes)
     if (input_len != 32) {
         ereport(ERROR,
                 (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                  errmsg("input must be exactly 32 bytes")));
     }
-    
-    // Calculate checksum (SHA512/256 truncated to 4 bytes)
-    uint8_t checksum[32];
-    uint8_t addr_data[36]; // 32 bytes public key + 4 bytes checksum
-    
-    // Copy public key to addr_data
-    memcpy(addr_data, pubkey, 32);
-    
-    // Calculate SHA512/256 of the public key
-    pg_sha512_256(addr_data, 32, checksum);
-    
-    // Append last 4 bytes of checksum to addr_data
-    memcpy(addr_data + 32, checksum + 28, 4);
-    
-    // Encode in base32
-    // Each 5 bits becomes one base32 character
-    // 36 bytes * 8 = 288 bits
-    // 288 bits / 5 = 58 characters (with padding)
-    text *output = (text *) palloc(VARHDRSZ + 59); // 58 chars + null terminator
-    char *result = VARDATA(output);
-    
-    int i, j = 0;
-    uint64_t buffer = 0;
-    int bits_in_buffer = 0;
-    
-    for (i = 0; i < 36; i++) {
-        buffer = (buffer << 8) | addr_data[i];
-        bits_in_buffer += 8;
-        
-        while (bits_in_buffer >= 5) {
-            bits_in_buffer -= 5;
-            result[j++] = base32_alphabet[(buffer >> bits_in_buffer) & 0x1F];
-        }
-    }
-    
-    // Handle remaining bits
-    if (bits_in_buffer > 0) {
-        buffer <<= (5 - bits_in_buffer);
-        result[j++] = base32_alphabet[buffer & 0x1F];
-    }
-    
-    result[j] = '\0';
-    SET_VARSIZE(output, VARHDRSZ + j);
-    
+
+    // Encode as base32 with checksum: 58 characters
+    text *output = (text *) palloc(VARHDRSZ + ALGORAND_ADDRESS_TXT_LEN);
+    algorand_address_encode(pubkey, VARDATA(output));
+    SET_VARSIZE(output, VARHDRSZ + ALGORAND_ADDRESS_TXT_LEN);
+
     PG_RETURN_TEXT_P(output);
 }
 
 
+
+///////////////////////////////////////////////////////////////////////////////
+
+// Compute the escrow address of the NFD lookup LogicSig for the given
+// prefix + lookup data and registry app id, as a 32-byte bytea.
+static bytea *
+nfd_lookup_lsig_address(const char *prefix, size_t prefix_len,
+                        const char *lookup, size_t lookup_len,
+                        int64 registry_app_id)
+{
+    uint8_t *buf = (uint8_t *) palloc(NFD_LSIG_TOSIGN_MAX(prefix_len + lookup_len));
+    size_t buf_len = nfd_lookup_program_to_sign(buf, prefix, prefix_len,
+                                                lookup, lookup_len,
+                                                (uint64_t) registry_app_id);
+
+    // The address is sha512/256("Program" || bytecode)
+    int32 bytea_size = ALGORAND_ADDRESS_BIN_LEN + VARHDRSZ;
+    bytea *new_bytea = (bytea *) palloc(bytea_size);
+    SET_VARSIZE(new_bytea, bytea_size);
+    pg_sha512_256(buf, buf_len, (uint8_t *) VARDATA(new_bytea));
+
+    pfree(buf);
+    return new_bytea;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -149,27 +134,14 @@ PG_FUNCTION_INFO_V1(GetNFDSigNameLSIG);
 Datum
 GetNFDSigNameLSIG(PG_FUNCTION_ARGS) {
 
-	// get the C-string from function args
+	// get the text and int64 params from function args
 	text *name = PG_GETARG_TEXT_PP(0);
-	int32 text_size = VARSIZE_ANY_EXHDR(name);
-	// copy it into a zero-terminated buffer
-	char *buf = (char*)palloc(text_size+1);
-	memcpy(buf, VARDATA_ANY(name), text_size);
-	buf[text_size] = 0;
-
-	// get the int64 param from function args
 	int64 registry_app_id = PG_GETARG_INT64(1);
 
-	// call the cgo implementation of this function
-	unsigned char address[32];
-	GetNFDSigNameLSIGGO(buf, registry_app_id, address);
-
-	// set the bytea-type return value
-	int32 bytea_size = 32 + VARHDRSZ;
-	bytea *new_bytea = (bytea*) palloc(bytea_size);
-	SET_VARSIZE(new_bytea, bytea_size);
-	memcpy(VARDATA(new_bytea), address, 32);
-	PG_RETURN_BYTEA_P(new_bytea);
+	PG_RETURN_BYTEA_P(nfd_lookup_lsig_address("name/", 5,
+	                                          VARDATA_ANY(name),
+	                                          VARSIZE_ANY_EXHDR(name),
+	                                          registry_app_id));
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -179,27 +151,14 @@ PG_FUNCTION_INFO_V1(GetNFDSigRevAddressLSIG);
 Datum
 GetNFDSigRevAddressLSIG(PG_FUNCTION_ARGS) {
 
-	// get the C-string from function args
-	text *name = PG_GETARG_TEXT_PP(0);
-	int32 text_size = VARSIZE_ANY_EXHDR(name);
-	// copy it into a zero-terminated buffer
-	char *buf = (char*)palloc(text_size+1);
-	memcpy(buf, VARDATA_ANY(name), text_size);
-	buf[text_size] = 0;
-
-	// get the int64 param from function args
+	// get the text and int64 params from function args
+	text *address = PG_GETARG_TEXT_PP(0);
 	int64 registry_app_id = PG_GETARG_INT64(1);
 
-	// call the cgo implementation of this function
-	unsigned char address[32];
-	GetNFDSigRevAddressLSIGGO(buf, registry_app_id, address);
-
-	// set the bytea-type return value
-	int32 bytea_size = 32 + VARHDRSZ;
-	bytea *new_bytea = (bytea*) palloc(bytea_size);
-	SET_VARSIZE(new_bytea, bytea_size);
-	memcpy(VARDATA(new_bytea), address, 32);
-	PG_RETURN_BYTEA_P(new_bytea);
+	PG_RETURN_BYTEA_P(nfd_lookup_lsig_address("address/", 8,
+	                                          VARDATA_ANY(address),
+	                                          VARSIZE_ANY_EXHDR(address),
+	                                          registry_app_id));
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -214,22 +173,22 @@ GetNFDSigRevAddressBinLSIG(PG_FUNCTION_ARGS) {
 
 	int32 address_size = VARSIZE_ANY_EXHDR(address);
 	if (address_size != 32) {
-		elog_error("binary address must be 32 bytes long");
+		ereport(ERROR,
+		        (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+		         errmsg("binary address must be 32 bytes long")));
 	}
 
 	// get the int64 param from function args
 	int64 registry_app_id = PG_GETARG_INT64(1);
 
-	// call the cgo implementation of this function
-	unsigned char output[32];
-	GetNFDSigRevAddressBinLSIGGO((unsigned char*)(VARDATA(address)), registry_app_id, output);
+	// the lookup key is the textual form of the address
+	char address_txt[ALGORAND_ADDRESS_TXT_LEN];
+	algorand_address_encode((uint8_t *) VARDATA_ANY(address), address_txt);
 
-	// set the bytea-type return value
-	int32 bytea_size = 32 + VARHDRSZ;
-	bytea *new_bytea = (bytea*) palloc(bytea_size);
-	SET_VARSIZE(new_bytea, bytea_size);
-	memcpy(VARDATA(new_bytea), output, 32);
-	PG_RETURN_BYTEA_P(new_bytea);
+	PG_RETURN_BYTEA_P(nfd_lookup_lsig_address("address/", 8,
+	                                          address_txt,
+	                                          ALGORAND_ADDRESS_TXT_LEN,
+	                                          registry_app_id));
 }
 
 ////////////////////// FAKE
@@ -240,57 +199,19 @@ TxnBin2Txt(PG_FUNCTION_ARGS) {
     bytea *input = PG_GETARG_BYTEA_PP(0);
     uint8_t *pubkey = (uint8_t *) VARDATA_ANY(input);
     int input_len = VARSIZE_ANY_EXHDR(input);
-    
+
     // Validate input length (must be 32 bytes)
     if (input_len != 32) {
         ereport(ERROR,
                 (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                  errmsg("input must be exactly 32 bytes")));
     }
-    
-    // Calculate checksum (SHA512/256 truncated to 4 bytes)
-    uint8_t checksum[32];
-    uint8_t addr_data[36]; // 32 bytes public key + 4 bytes checksum
-    
-    // Copy public key to addr_data
-    memcpy(addr_data, pubkey, 32);
-    
-    // Calculate SHA512/256 of the public key
-    pg_sha512_256(addr_data, 32, checksum);
-    
-    // Append last 4 bytes of checksum to addr_data
-    memcpy(addr_data + 32, checksum + 28, 4);
-    
-    // Encode in base32
-    // Each 5 bits becomes one base32 character
-    // 36 bytes * 8 = 288 bits
-    // 288 bits / 5 = 58 characters (with padding)
-    text *output = (text *) palloc(VARHDRSZ + 59); // 58 chars + null terminator
-    char *result = VARDATA(output);
-    
-    int i, j = 0;
-    uint64_t buffer = 0;
-    int bits_in_buffer = 0;
-    
-    for (i = 0; i < 36; i++) {
-        buffer = (buffer << 8) | addr_data[i];
-        bits_in_buffer += 8;
-        
-        while (bits_in_buffer >= 5) {
-            bits_in_buffer -= 5;
-            result[j++] = base32_alphabet[(buffer >> bits_in_buffer) & 0x1F];
-        }
-    }
-    
-    // Handle remaining bits
-    if (bits_in_buffer > 0) {
-        buffer <<= (5 - bits_in_buffer);
-        result[j++] = base32_alphabet[buffer & 0x1F];
-    }
-    
-    result[j] = '\0';
-    SET_VARSIZE(output, VARHDRSZ + j);
-    
+
+    // Encode as base32 with checksum: 58 characters
+    text *output = (text *) palloc(VARHDRSZ + ALGORAND_ADDRESS_TXT_LEN);
+    algorand_address_encode(pubkey, VARDATA(output));
+    SET_VARSIZE(output, VARHDRSZ + ALGORAND_ADDRESS_TXT_LEN);
+
     PG_RETURN_TEXT_P(output);
 }
 
@@ -302,22 +223,22 @@ TxnTxt2Bin(PG_FUNCTION_ARGS)
     text *input = PG_GETARG_TEXT_PP(0);
     char *str = VARDATA_ANY(input);
     int str_len = VARSIZE_ANY_EXHDR(input);
-    
+
     // Remove padding chars
     while (str_len > 0 && str[str_len - 1] == '=')
         str_len--;
-    
+
     // Calculate output length (before truncation)
     int output_len = (str_len * 5) / 8;
-    
+
     // Allocate output buffer
     bytea *result = (bytea *) palloc(VARHDRSZ + output_len);
     unsigned char *out = (unsigned char *) VARDATA(result);
-    
+
     int buffer = 0;
     int bits_left = 0;
     int out_index = 0;
-    
+
     // Decode base32
     for (int i = 0; i < str_len; i++) {
         unsigned char c = str[i];
@@ -325,10 +246,10 @@ TxnTxt2Bin(PG_FUNCTION_ARGS)
             ereport(ERROR,
                     (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                      errmsg("invalid base32 character")));
-                     
+
         buffer = (buffer << 5) | base32_decode_table[c];
         bits_left += 5;
-        
+
         if (bits_left >= 8) {
             if (out_index < output_len) {
                 out[out_index++] = (buffer >> (bits_left - 8)) & 0xFF;
@@ -336,27 +257,16 @@ TxnTxt2Bin(PG_FUNCTION_ARGS)
             bits_left -= 8;
         }
     }
-    
+
     // Truncate last 4 bytes
     output_len -= 4;
-    
+
     // Check final length
     if (output_len != 32)
         ereport(ERROR,
                 (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                  errmsg("decoded length must be exactly 32 bytes (got %d bytes)", output_len)));
-    
+
     SET_VARSIZE(result, VARHDRSZ + output_len);
     PG_RETURN_BYTEA_P(result);
-}
-
-
-///////////////////////////////////////////////////////////////////////////////
-
-void elog_notice(char* string) {
-    elog(NOTICE, string, "");
-}
-
-void elog_error(char* string) {
-    elog(ERROR, string, "");
 }

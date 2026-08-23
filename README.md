@@ -4,6 +4,12 @@
 
 A set of utility functions to convert between binary arrays and various Algorand textual object encodings.
 
+Since version 2.0 the extension is pure C: the NFD LSIG functions no longer
+pull in a cgo/Go runtime, so no Go toolchain is needed to build and the
+library does not spawn threads or install signal handlers inside PostgreSQL
+backends. All functions are `PARALLEL SAFE`. Upgrade from 1.0 with
+`ALTER EXTENSION pg_algorand UPDATE TO '2.0';` after installing the new build.
+
 ## About AlgoNode
 
 We operate a free algod and algorand-indexer valilla API service. 

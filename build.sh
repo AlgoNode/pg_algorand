@@ -1,5 +1,4 @@
 sudo make clean
 sudo make uninstall
-CGO_ENABLED=1 go build -buildmode=c-archive functions.go
-sudo make
+sudo make -j"$(nproc --ignore=1)"
 sudo make install
