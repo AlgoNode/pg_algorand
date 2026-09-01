@@ -1,0 +1,78 @@
+CREATE EXTENSION pg_algorand;
+-- Address text <-> binary
+SELECT AddressTxt2Bin('ALGONODEIBJTET5OSEAXIHDSIEG7C2DOFB2WDYLRZTXN3NXVJ3NJD26L4E') AS bin;
+                                bin                                 
+--------------------------------------------------------------------
+ \x02cce6b8644053324fae9101741c72410df1686e287561e171cceeddb6f54eda
+(1 row)
+
+SELECT AddressBin2Txt(AddressTxt2Bin('ALGONODEIBJTET5OSEAXIHDSIEG7C2DOFB2WDYLRZTXN3NXVJ3NJD26L4E')) AS roundtrip;
+                         roundtrip                          
+------------------------------------------------------------
+ ALGONODEIBJTET5OSEAXIHDSIEG7C2DOFB2WDYLRZTXN3NXVJ3NJD26L4E
+(1 row)
+
+SELECT AddressBin2Txt(decode(repeat('00', 32), 'hex')) AS zero_address;
+                        zero_address                        
+------------------------------------------------------------
+ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY5HFKQ
+(1 row)
+
+SELECT AddressTxt2Bin('ALGONODE');
+ERROR:  decoded length must be exactly 32 bytes (got 1 bytes)
+SELECT AddressTxt2Bin('0LGONODEIBJTET5OSEAXIHDSIEG7C2DOFB2WDYLRZTXN3NXVJ3NJD26L4E');
+ERROR:  invalid base32 character
+SELECT AddressBin2Txt('\x00'::bytea);
+ERROR:  input must be exactly 32 bytes
+-- algoaddr type
+SELECT 'ALGONODEIBJTET5OSEAXIHDSIEG7C2DOFB2WDYLRZTXN3NXVJ3NJD26L4E'::algoaddr;
+                          algoaddr                          
+------------------------------------------------------------
+ ALGONODEIBJTET5OSEAXIHDSIEG7C2DOFB2WDYLRZTXN3NXVJ3NJD26L4E
+(1 row)
+
+SELECT 'ALGONODEIBJTET5OSEAXIHDSIEG7C2DOFB2WDYLRZTXN3NXVJ3NJD26L4E'::algoaddr::bytea
+     = AddressTxt2Bin('ALGONODEIBJTET5OSEAXIHDSIEG7C2DOFB2WDYLRZTXN3NXVJ3NJD26L4E') AS same_bytes;
+ same_bytes 
+------------
+ t
+(1 row)
+
+SELECT AddressTxt2Bin('ALGONODEIBJTET5OSEAXIHDSIEG7C2DOFB2WDYLRZTXN3NXVJ3NJD26L4E')::algoaddr AS via_cast;
+                          via_cast                          
+------------------------------------------------------------
+ ALGONODEIBJTET5OSEAXIHDSIEG7C2DOFB2WDYLRZTXN3NXVJ3NJD26L4E
+(1 row)
+
+SELECT 'TOOSHORT'::algoaddr;
+ERROR:  invalid address length: expected 58 characters, got 8
+LINE 1: SELECT 'TOOSHORT'::algoaddr;
+               ^
+-- NFD LSIG escrow addresses (deterministic; values pinned here)
+SELECT length(GetNFDSigNameLSIG('algonode.algo', 760937186)) AS len;
+ len 
+-----
+  32
+(1 row)
+
+SELECT AddressBin2Txt(GetNFDSigNameLSIG('algonode.algo', 760937186)) AS name_lsig;
+                         name_lsig                          
+------------------------------------------------------------
+ DFHNL2FOYPNYCIXVGO45RTB5M7PTYLHXYLWZBZZE4OW5ZANEKB2SL6DUDQ
+(1 row)
+
+SELECT AddressBin2Txt(GetNFDSigRevAddressLSIG('ALGONODEIBJTET5OSEAXIHDSIEG7C2DOFB2WDYLRZTXN3NXVJ3NJD26L4E', 760937186)) AS rev_lsig;
+                          rev_lsig                          
+------------------------------------------------------------
+ JCGSL3YP55THQUPZMZXHX6OSLHATIMSNO2SQYUCFGLVXBCZ4VHDGHKFWVI
+(1 row)
+
+SELECT GetNFDSigRevAddressBinLSIG(AddressTxt2Bin('ALGONODEIBJTET5OSEAXIHDSIEG7C2DOFB2WDYLRZTXN3NXVJ3NJD26L4E'), 760937186)
+     = GetNFDSigRevAddressLSIG('ALGONODEIBJTET5OSEAXIHDSIEG7C2DOFB2WDYLRZTXN3NXVJ3NJD26L4E', 760937186) AS bin_matches_txt;
+ bin_matches_txt 
+-----------------
+ t
+(1 row)
+
+SELECT GetNFDSigRevAddressBinLSIG('\x00'::bytea, 1);
+ERROR:  binary address must be 32 bytes long

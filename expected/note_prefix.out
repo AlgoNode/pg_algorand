@@ -1,0 +1,380 @@
+-- Byte-prefix index support (note_prefix.c planner hook).
+-- The hook only needs the library loaded; it creates no SQL objects.
+LOAD 'pg_algorand';
+SET max_parallel_workers_per_gather = 0;
+SET enable_seqscan = off;
+SET enable_bitmapscan = off;
+CREATE TABLE pfx_txn (
+    round    bigint   NOT NULL,
+    intra    integer  NOT NULL,
+    typeenum smallint NOT NULL,
+    txn      jsonb    NOT NULL,
+    PRIMARY KEY (round, intra)
+);
+INSERT INTO pfx_txn
+SELECT r, i,
+       CASE WHEN (r + i) % 10 < 2 THEN 1 ELSE 1 + (r + i) % 3 END,
+       jsonb_build_object('txn', CASE (r + i) % 10
+           WHEN 0 THEN jsonb_build_object('note', encode(convert_to('SPAMSPAM-' || lpad(r::text, 6, '0'), 'UTF8'), 'base64'))
+           WHEN 1 THEN jsonb_build_object('note', encode(convert_to('SPAMSPAM-' || lpad(r::text, 6, '0'), 'UTF8'), 'base64'))
+           WHEN 2 THEN jsonb_build_object('note', encode(convert_to('algo:' || to_hex(r * 7919 + i), 'UTF8'), 'base64'))
+           WHEN 3 THEN jsonb_build_object('note', encode(convert_to('algo:' || to_hex(r * 7919 + i), 'UTF8'), 'base64'))
+           WHEN 4 THEN jsonb_build_object('note', encode(convert_to('abc', 'UTF8'), 'base64'))
+           WHEN 5 THEN jsonb_build_object('note', encode(convert_to('SEVEN77', 'UTF8'), 'base64'))
+           WHEN 6 THEN jsonb_build_object('note', encode('\xffffffffffffff'::bytea || set_byte('\x00'::bytea, 0, (r + i) % 256), 'base64'))
+           WHEN 7 THEN jsonb_build_object('note', encode('\xffffff'::bytea || sha256(convert_to(r || ':' || i, 'UTF8')), 'base64'))
+           WHEN 8 THEN jsonb_build_object('note', encode(sha256(convert_to(r || ':' || i, 'UTF8')), 'base64'))
+           ELSE '{}'::jsonb END)
+FROM generate_series(1, 500) r, generate_series(0, 3) i;
+-- Production-shaped index: 7-byte prefix, round-ordered, partial on notes.
+CREATE INDEX pfx_txn_note7_idx
+    ON pfx_txn (substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 7), round, intra, typeenum)
+    WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 7) IS NOT NULL;
+-- Partial-index expression stats are never used by the planner; these are.
+CREATE STATISTICS pfx_txn_note7_stats
+    ON (substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 7)) FROM pfx_txn;
+ANALYZE pfx_txn;
+-- Result equivalence: rewrite on (index forced) vs off (seq scan).
+CREATE FUNCTION pfx_chk(q text, OUT same boolean, OUT n bigint) LANGUAGE plpgsql AS $$
+DECLARE h_on text; h_off text; n_off bigint; w text;
+BEGIN
+  w := format('SELECT count(*), md5(coalesce(string_agg(x::text, E''\n'' ORDER BY x::text), '''')) FROM (%s) x', q);
+  PERFORM set_config('pg_algorand.prefix_rewrite', 'on', true);
+  PERFORM set_config('enable_seqscan', 'off', true);
+  EXECUTE w INTO n, h_on;
+  PERFORM set_config('pg_algorand.prefix_rewrite', 'off', true);
+  PERFORM set_config('enable_seqscan', 'on', true);
+  EXECUTE w INTO n_off, h_off;
+  same := (h_on = h_off) AND (n = n_off);
+END $$;
+-- N = K: matched directly by the planner
+EXPLAIN (COSTS OFF)
+SELECT round, intra FROM pfx_txn
+WHERE round >= 100 AND typeenum = 1
+  AND substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 7) = '\x5350414d535041'::bytea
+ORDER BY round, intra LIMIT 10;
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Index Scan using pfx_txn_note7_idx on pfx_txn
+         Index Cond: ((SUBSTRING(decode(((txn -> 'txn'::text) ->> 'note'::text), 'base64'::text) FROM 1 FOR 7) = '\x5350414d535041'::bytea) AND (round >= 100) AND (typeenum = 1))
+(3 rows)
+
+-- N < K, len(B) = N: half-open range on the prefix, original clause dropped
+EXPLAIN (COSTS OFF)
+SELECT round, intra FROM pfx_txn
+WHERE round >= 100 AND typeenum = 3
+  AND substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 3) = '\x616c67'::bytea
+ORDER BY round, intra LIMIT 10;
+                                                                                                                         QUERY PLAN                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Index Scan using pfx_txn_pkey on pfx_txn
+         Index Cond: (round >= 100)
+         Filter: ((typeenum = 3) AND ("substring"(decode(((txn -> 'txn'::text) ->> 'note'::text), 'base64'::text), 1, 7) >= '\x616c67'::bytea) AND ("substring"(decode(((txn -> 'txn'::text) ->> 'note'::text), 'base64'::text), 1, 7) < '\x616c68'::bytea))
+(4 rows)
+
+SELECT * FROM pfx_chk($$SELECT round, intra FROM pfx_txn WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 3) = '\x616c67'::bytea$$);
+ same |  n  
+------+-----
+ t    | 400
+(1 row)
+
+-- N < K, selective family: range becomes an Index Cond on the prefix index
+EXPLAIN (COSTS OFF)
+SELECT round, intra FROM pfx_txn
+WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 6) = '\x616c676f3a66'::bytea
+ORDER BY round, intra LIMIT 10;
+                                                                                                                           QUERY PLAN                                                                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: round, intra
+         ->  Index Scan using pfx_txn_note7_idx on pfx_txn
+               Index Cond: (("substring"(decode(((txn -> 'txn'::text) ->> 'note'::text), 'base64'::text), 1, 7) >= '\x616c676f3a66'::bytea) AND ("substring"(decode(((txn -> 'txn'::text) ->> 'note'::text), 'base64'::text), 1, 7) < '\x616c676f3a67'::bytea))
+(5 rows)
+
+SELECT * FROM pfx_chk($$SELECT round, intra FROM pfx_txn WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 6) = '\x616c676f3a66'::bytea$$);
+ same | n 
+------+---
+ t    | 7
+(1 row)
+
+-- N < K, B all 0xFF: no upper bound
+EXPLAIN (COSTS OFF)
+SELECT round, intra FROM pfx_txn
+WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 3) = '\xffffff'::bytea
+ORDER BY round, intra LIMIT 10;
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Index Scan using pfx_txn_pkey on pfx_txn
+         Filter: ("substring"(decode(((txn -> 'txn'::text) ->> 'note'::text), 'base64'::text), 1, 7) >= '\xffffff'::bytea)
+(3 rows)
+
+SELECT * FROM pfx_chk($$SELECT round, intra FROM pfx_txn WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 3) = '\xffffff'::bytea$$);
+ same |  n  
+------+-----
+ t    | 400
+(1 row)
+
+SELECT * FROM pfx_chk($$SELECT round, intra FROM pfx_txn WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 7) = '\xffffffffffffff'::bytea$$);
+ same |  n  
+------+-----
+ t    | 200
+(1 row)
+
+SELECT * FROM pfx_chk($$SELECT round, intra FROM pfx_txn WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 8) = '\xffffffffffffffff'::bytea$$);
+ same | n 
+------+---
+ t    | 0
+(1 row)
+
+-- N < K, len(B) < N: the note must equal B exactly
+EXPLAIN (COSTS OFF)
+SELECT round, intra FROM pfx_txn
+WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 5) = '\x616263'::bytea
+ORDER BY round, intra LIMIT 10;
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Index Scan using pfx_txn_note7_idx on pfx_txn
+         Index Cond: ("substring"(decode(((txn -> 'txn'::text) ->> 'note'::text), 'base64'::text), 1, 7) = '\x616263'::bytea)
+(3 rows)
+
+SELECT * FROM pfx_chk($$SELECT round, intra FROM pfx_txn WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 5) = '\x616263'::bytea$$);
+ same |  n  
+------+-----
+ t    | 200
+(1 row)
+
+SELECT * FROM pfx_chk($$SELECT round, intra FROM pfx_txn WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 3) = '\x6162'::bytea$$);
+ same | n 
+------+---
+ t    | 0
+(1 row)
+
+-- N < K, len(B) > N: always false; lossy equality + original kept
+SELECT * FROM pfx_chk($$SELECT round, intra FROM pfx_txn WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 3) = '\x61626364'::bytea$$);
+ same | n 
+------+---
+ t    | 0
+(1 row)
+
+-- N > K: equality on the first K bytes, original clause kept as filter
+EXPLAIN (COSTS OFF)
+SELECT round, intra FROM pfx_txn
+WHERE round >= 100 AND typeenum = 1
+  AND substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 12) = '\x5350414d5350414d2d303030'::bytea
+ORDER BY round, intra LIMIT 10;
+                                                                                  QUERY PLAN                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Index Scan using pfx_txn_note7_idx on pfx_txn
+         Index Cond: (("substring"(decode(((txn -> 'txn'::text) ->> 'note'::text), 'base64'::text), 1, 7) = '\x5350414d535041'::bytea) AND (round >= 100) AND (typeenum = 1))
+         Filter: (SUBSTRING(decode(((txn -> 'txn'::text) ->> 'note'::text), 'base64'::text) FROM 1 FOR 12) = '\x5350414d5350414d2d303030'::bytea)
+(4 rows)
+
+SELECT * FROM pfx_chk($$SELECT round, intra FROM pfx_txn WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 12) = '\x5350414d5350414d2d303030'::bytea$$);
+ same |  n  
+------+-----
+ t    | 400
+(1 row)
+
+SELECT * FROM pfx_chk($$SELECT round, intra FROM pfx_txn WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 34) = '\x534556454e3737'::bytea$$);
+ same |  n  
+------+-----
+ t    | 200
+(1 row)
+
+SELECT * FROM pfx_chk($$SELECT round, intra FROM pfx_txn WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 12) = '\x534556454e3737'::bytea$$);
+ same |  n  
+------+-----
+ t    | 200
+(1 row)
+
+-- Spelling variants with N = K: substr(), FROM 0 FOR 8, reversed operands
+EXPLAIN (COSTS OFF)
+SELECT round, intra FROM pfx_txn
+WHERE substr(decode(txn -> 'txn' ->> 'note', 'base64'), 1, 7) = '\x5350414d535041'::bytea
+ORDER BY round, intra LIMIT 10;
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Index Scan using pfx_txn_note7_idx on pfx_txn
+         Index Cond: ("substring"(decode(((txn -> 'txn'::text) ->> 'note'::text), 'base64'::text), 1, 7) = '\x5350414d535041'::bytea)
+(3 rows)
+
+EXPLAIN (COSTS OFF)
+SELECT round, intra FROM pfx_txn
+WHERE '\x5350414d535041'::bytea = substring(decode(txn -> 'txn' ->> 'note', 'base64') from 0 for 8)
+ORDER BY round, intra LIMIT 10;
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Index Scan using pfx_txn_note7_idx on pfx_txn
+         Index Cond: ("substring"(decode(((txn -> 'txn'::text) ->> 'note'::text), 'base64'::text), 1, 7) = '\x5350414d535041'::bytea)
+(3 rows)
+
+SELECT * FROM pfx_chk($$SELECT round, intra FROM pfx_txn WHERE substr(decode(txn -> 'txn' ->> 'note', 'base64'), 1, 7) = '\x5350414d535041'::bytea$$);
+ same |  n  
+------+-----
+ t    | 400
+(1 row)
+
+SELECT * FROM pfx_chk($$SELECT round, intra FROM pfx_txn WHERE '\x5350414d535041'::bytea = substring(decode(txn -> 'txn' ->> 'note', 'base64') from 0 for 8)$$);
+ same |  n  
+------+-----
+ t    | 400
+(1 row)
+
+SELECT * FROM pfx_chk($$SELECT round, intra FROM pfx_txn WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 0 for 4) = '\x616c67'::bytea$$);
+ same |  n  
+------+-----
+ t    | 400
+(1 row)
+
+-- Boolean contexts: the rewrite is an exact three-valued equivalence
+SELECT * FROM pfx_chk($$SELECT round, intra FROM pfx_txn WHERE NOT (substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 3) = '\x616c67'::bytea)$$);
+ same |  n   
+------+------
+ t    | 1400
+(1 row)
+
+SELECT * FROM pfx_chk($$SELECT round, intra FROM pfx_txn WHERE (substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 3) = '\x616c67'::bytea) IS NOT TRUE$$);
+ same |  n   
+------+------
+ t    | 1600
+(1 row)
+
+SELECT * FROM pfx_chk($$SELECT round, intra FROM pfx_txn WHERE (substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 5) = '\x616c67'::bytea) IS NULL$$);
+ same |  n  
+------+-----
+ t    | 200
+(1 row)
+
+SELECT * FROM pfx_chk($$SELECT round, intra FROM pfx_txn WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 3) = '\x616c67'::bytea OR typeenum = 2$$);
+ same |  n  
+------+-----
+ t    | 800
+(1 row)
+
+SELECT * FROM pfx_chk($$SELECT round, intra FROM pfx_txn WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 3) = NULL::bytea$$);
+ same | n 
+------+---
+ t    | 0
+(1 row)
+
+-- Nullable side of an outer join, and B coming from another relation
+SELECT * FROM pfx_chk($$SELECT h.r, t.intra FROM generate_series(1, 500) h(r) LEFT JOIN pfx_txn t ON t.round = h.r WHERE substring(decode(t.txn -> 'txn' ->> 'note', 'base64') from 1 for 3) = '\x616c67'::bytea$$);
+ same |  n  
+------+-----
+ t    | 400
+(1 row)
+
+SELECT * FROM pfx_chk($$SELECT t.round, t.intra FROM pfx_txn t JOIN (VALUES ('\x616c676f3a'::bytea), ('\x616263'::bytea)) v(b) ON substring(decode(t.txn -> 'txn' ->> 'note', 'base64') from 1 for 5) = v.b$$);
+ same |  n  
+------+-----
+ t    | 600
+(1 row)
+
+-- Parameters: custom plans see the value; generic plans derive only for N >= K
+PREPARE p3(bigint, smallint, bytea) AS
+SELECT round, intra FROM pfx_txn
+WHERE round >= $1 AND typeenum = $2
+  AND substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 3) = $3
+ORDER BY round, intra LIMIT 10;
+PREPARE p12(bigint, smallint, bytea) AS
+SELECT round, intra FROM pfx_txn
+WHERE round >= $1 AND typeenum = $2
+  AND substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 12) = $3
+ORDER BY round, intra LIMIT 10;
+SET plan_cache_mode = force_custom_plan;
+EXPLAIN (COSTS OFF) EXECUTE p3(100, 3, '\x616c67');
+                                                                                                                               QUERY PLAN                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Index Scan using pfx_txn_pkey on pfx_txn
+         Index Cond: (round >= '100'::bigint)
+         Filter: ((typeenum = '3'::smallint) AND ("substring"(decode(((txn -> 'txn'::text) ->> 'note'::text), 'base64'::text), 1, 7) >= '\x616c67'::bytea) AND ("substring"(decode(((txn -> 'txn'::text) ->> 'note'::text), 'base64'::text), 1, 7) < '\x616c68'::bytea))
+(4 rows)
+
+EXECUTE p3(100, 3, '\x616c67');
+ round | intra 
+-------+-------
+   110 |     3
+   111 |     2
+   112 |     1
+   113 |     0
+   119 |     3
+   120 |     2
+   121 |     1
+   122 |     0
+   140 |     3
+   141 |     2
+(10 rows)
+
+SET plan_cache_mode = force_generic_plan;
+EXPLAIN (COSTS OFF) EXECUTE p12(100, 1, '\x5350414d5350414d2d303030');
+                                                                                QUERY PLAN                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Index Scan using pfx_txn_note7_idx on pfx_txn
+         Index Cond: (("substring"(decode(((txn -> 'txn'::text) ->> 'note'::text), 'base64'::text), 1, 7) = "substring"($3, 1, 7)) AND (round >= $1) AND (typeenum = $2))
+         Filter: (SUBSTRING(decode(((txn -> 'txn'::text) ->> 'note'::text), 'base64'::text) FROM 1 FOR 12) = $3)
+(4 rows)
+
+EXECUTE p12(100, 1, '\x5350414d5350414d2d303030');
+ round | intra 
+-------+-------
+   100 |     0
+   100 |     1
+   101 |     0
+   107 |     3
+   108 |     2
+   108 |     3
+   109 |     1
+   109 |     2
+   110 |     0
+   110 |     1
+(10 rows)
+
+EXPLAIN (COSTS OFF) EXECUTE p3(100, 3, '\x616c67');
+                                                              QUERY PLAN                                                              
+--------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Index Scan using pfx_txn_pkey on pfx_txn
+         Index Cond: (round >= $1)
+         Filter: ((typeenum = $2) AND (SUBSTRING(decode(((txn -> 'txn'::text) ->> 'note'::text), 'base64'::text) FROM 1 FOR 3) = $3))
+(4 rows)
+
+RESET plan_cache_mode;
+-- Runtime switch
+SET pg_algorand.prefix_rewrite = off;
+EXPLAIN (COSTS OFF)
+SELECT round, intra FROM pfx_txn
+WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 3) = '\x616c67'::bytea
+ORDER BY round, intra LIMIT 10;
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Index Scan using pfx_txn_pkey on pfx_txn
+         Filter: (SUBSTRING(decode(((txn -> 'txn'::text) ->> 'note'::text), 'base64'::text) FROM 1 FOR 3) = '\x616c67'::bytea)
+(3 rows)
+
+RESET pg_algorand.prefix_rewrite;
+-- A table without a matching index is left alone
+RESET enable_seqscan;
+CREATE TABLE pfx_noidx AS SELECT * FROM pfx_txn WHERE round <= 50;
+EXPLAIN (COSTS OFF)
+SELECT round, intra FROM pfx_noidx
+WHERE substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 3) = '\x616c67'::bytea;
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
+ Seq Scan on pfx_noidx
+   Filter: (SUBSTRING(decode(((txn -> 'txn'::text) ->> 'note'::text), 'base64'::text) FROM 1 FOR 3) = '\x616c67'::bytea)
+(2 rows)
+
+DROP TABLE pfx_noidx;
+DROP TABLE pfx_txn;
+DROP FUNCTION pfx_chk(text);
