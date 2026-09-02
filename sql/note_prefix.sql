@@ -145,7 +145,26 @@ SET plan_cache_mode = force_generic_plan;
 EXPLAIN (COSTS OFF) EXECUTE p12(100, 1, '\x5350414d5350414d2d303030');
 EXECUTE p12(100, 1, '\x5350414d5350414d2d303030');
 EXPLAIN (COSTS OFF) EXECUTE p3(100, 3, '\x616c67');
+-- A generic plan for N < K cannot use the index and would look cheap to the
+-- plan cache; the hook inflates its cost. N >= K generic plans are untouched.
+CREATE FUNCTION pfx_cost(q text) RETURNS float8 LANGUAGE plpgsql AS $$
+DECLARE j json;
+BEGIN
+    EXECUTE 'EXPLAIN (FORMAT JSON) ' || q INTO j;
+    RETURN (j -> 0 -> 'Plan' ->> 'Total Cost')::float8;
+END $$;
+SELECT pfx_cost($$EXECUTE p3(100, 3, '\x616c67')$$) > 1e9 AS p3_generic_penalized,
+       pfx_cost($$EXECUTE p12(100, 1, '\x5350414d5350414d2d303030')$$) < 1e9 AS p12_generic_cheap;
 RESET plan_cache_mode;
+-- So in auto mode the statement stays on custom plans past the fifth use.
+PREPARE p3c(bigint, smallint, bytea) AS
+SELECT round, intra FROM pfx_txn
+WHERE round >= $1 AND typeenum = $2
+  AND substring(decode(txn -> 'txn' ->> 'note', 'base64') from 1 for 3) = $3
+ORDER BY round, intra LIMIT 10;
+DO $$ BEGIN FOR i IN 1..5 LOOP EXECUTE $q$EXECUTE p3c(100, 3, '\x616c67')$q$; END LOOP; END $$;
+EXPLAIN (COSTS OFF) EXECUTE p3c(100, 3, '\x616c67');
+EXPLAIN (COSTS OFF) EXECUTE p3c(100, 3, '\x616c67');
 
 -- Runtime switch
 SET pg_algorand.prefix_rewrite = off;

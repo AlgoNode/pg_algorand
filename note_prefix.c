@@ -75,11 +75,23 @@ void		_PG_init(void);
 static planner_hook_type prev_planner_hook = NULL;
 static bool prefix_rewrite_enabled = true;
 
+/*
+ * Added to the total cost of a plan built without the value of an external
+ * parameter that a N < K prefix clause needed (i.e. a plan cache generic
+ * plan).  Such a plan cannot use the prefix index, and since the planner has
+ * no value to estimate with, the unindexed plan looks cheap (LIMIT over a
+ * primary-key scan at default selectivity).  plancache.c compares the generic
+ * plan's cost with the average custom plan cost, so inflating it keeps the
+ * statement on custom plans, where the value is known and the index is used.
+ */
+#define PREFIX_UNBOUND_PARAM_PENALTY	1.0e10
+
 typedef struct PrefixCtx
 {
 	Query	   *query;			/* Query level whose rtable level-0 Vars use */
 	ParamListInfo boundParams;	/* bound values for custom plans, or NULL */
 	int			nrewrites;
+	bool		unbound_below_k;	/* N < K clause with a Param lacking a value */
 } PrefixCtx;
 
 typedef struct VarnoCtx
@@ -490,7 +502,10 @@ rewrite_bytea_eq(OpExpr *op, PrefixCtx *ctx)
 		}
 		else if (bconst == NULL)
 		{
-			continue;			/* n < k: need the value to bound the range */
+			/* n < k: need the value to bound the range */
+			if (IsA(b, Param) && ((Param *) b)->paramkind == PARAM_EXTERN)
+				ctx->unbound_below_k = true;
+			continue;
 		}
 		else if (blen < n)
 		{
@@ -582,6 +597,9 @@ static PlannedStmt *
 pg_algorand_planner(Query *parse, const char *query_string,
 					int cursorOptions, ParamListInfo boundParams)
 {
+	PlannedStmt *result;
+	bool		penalize = false;
+
 	if (prefix_rewrite_enabled && parse->commandType != CMD_UTILITY &&
 		query_tree_walker(parse, has_candidate_walker, NULL, 0))
 	{
@@ -590,16 +608,28 @@ pg_algorand_planner(Query *parse, const char *query_string,
 		ctx.query = parse;
 		ctx.boundParams = boundParams;
 		ctx.nrewrites = 0;
+		ctx.unbound_below_k = false;
 		parse = query_tree_mutator(parse, prefix_mutator, &ctx, 0);
 		if (ctx.nrewrites > 0)
 			elog(DEBUG1, "pg_algorand: derived prefix-index conditions for %d clause(s)",
 				 ctx.nrewrites);
+		penalize = ctx.unbound_below_k;
 	}
 
 	if (prev_planner_hook)
-		return prev_planner_hook(parse, query_string, cursorOptions,
-								 boundParams);
-	return standard_planner(parse, query_string, cursorOptions, boundParams);
+		result = prev_planner_hook(parse, query_string, cursorOptions,
+								   boundParams);
+	else
+		result = standard_planner(parse, query_string, cursorOptions,
+								  boundParams);
+
+	if (penalize && result != NULL && result->planTree != NULL)
+	{
+		elog(DEBUG1, "pg_algorand: prefix clause with unbound parameter, "
+			 "marking plan as expensive for the plan cache");
+		result->planTree->total_cost += PREFIX_UNBOUND_PARAM_PENALTY;
+	}
+	return result;
 }
 
 void

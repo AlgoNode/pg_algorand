@@ -42,6 +42,15 @@ configured. For N < K the value of B must be known at plan time, which is the
 case for literals and for bound parameters in custom plans (the normal path
 for `$n` parameters, the same behaviour as `LIKE 'abc%'`).
 
+With server-side prepared statements (pgx, JDBC, `PREPARE`) the plan cache
+normally switches to a generic plan after five executions. A generic plan for
+N < K cannot use the prefix index, and because the planner has no value to
+estimate with, the unindexed plan looks cheap (LIMIT over a primary-key scan).
+The hook therefore marks such generic plans as prohibitively expensive, so the
+plan cache keeps building custom plans for those statements; the price is a
+few milliseconds of planning per execution. Statements with N >= K are
+unaffected and may use generic plans.
+
 ### Setup
 
 The hook lives in the shared library and needs no SQL objects, but the
