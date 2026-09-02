@@ -92,6 +92,37 @@ sort, whether or not a `typeenum` filter is present. Runtime switch:
 SET pg_algorand.prefix_rewrite = off;
 ```
 
+## Range conditions across join equalities (2.2)
+
+PostgreSQL derives equalities through equivalence classes (`a = b AND a = 5`
+gives `b = 5`) but never inequalities. The indexer's transaction pages look
+like
+
+```sql
+FROM txn t JOIN block_header h ON t.round = h.round
+WHERE t.round >= $1 ... ORDER BY t.round, t.intra LIMIT 1000
+```
+
+and nothing tells the planner that `h.round >= $1`. A plan that drives the
+join from `block_header` scans that index from its first key and probes `txn`
+for every round below `$1`, finding nothing; once the per-round probe is costed
+accurately (a correct `n_distinct` on `round`) that plan is the cheapest LIMIT
+plan on paper and by far the slowest one in practice (seconds instead of
+milliseconds).
+
+The same planner hook therefore adds, before planning, every condition
+`column OP value` (`OP` one of `<`, `<=`, `>=`, `>`) to all columns joined to
+it with `=` of the same type and operator family in the WHERE clause or an
+inner join. Only conditions that hold for every output row are used and
+produced: nothing at or below the nullable side of an outer join is touched,
+so results never change. The value side must be safe to evaluate twice (no
+volatile or set-returning functions); an uncorrelated sub-select is allowed
+and becomes a second init plan. Runtime switch:
+
+```sql
+SET pg_algorand.propagate_inequalities = off;
+```
+
 ## About AlgoNode
 
 We operate a free algod and algorand-indexer valilla API service. 

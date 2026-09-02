@@ -70,6 +70,8 @@
 #include "utils/relcache.h"
 #include "varatt.h"
 
+#include "ineq_propagation.h"
+
 void		_PG_init(void);
 
 static planner_hook_type prev_planner_hook = NULL;
@@ -616,6 +618,15 @@ pg_algorand_planner(Query *parse, const char *query_string,
 		penalize = ctx.unbound_below_k;
 	}
 
+	if (parse->commandType != CMD_UTILITY)
+	{
+		int			npropagated = propagate_inequalities(parse);
+
+		if (npropagated > 0)
+			elog(DEBUG1, "pg_algorand: propagated %d range condition(s) across join equalities",
+				 npropagated);
+	}
+
 	if (prev_planner_hook)
 		result = prev_planner_hook(parse, query_string, cursorOptions,
 								   boundParams);
@@ -645,6 +656,7 @@ _PG_init(void)
 							 PGC_USERSET,
 							 0,
 							 NULL, NULL, NULL);
+	ineq_propagation_init();
 	MarkGUCPrefixReserved("pg_algorand");
 
 	prev_planner_hook = planner_hook;
